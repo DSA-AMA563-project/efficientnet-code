@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
+from multiprocessing import freeze_support
+
 import pandas as pd
 import numpy as np
 
@@ -77,9 +79,15 @@ class QRDataset(Dataset):
         img = img[min_x:max_x, min_y:max_y, :]
         return self.crop_2(img)
 
+
+
     def __getitem__(self, index):
         start_time = time.time()
         img = Image.open(self.train_jpg[index]).convert('RGB')
+
+        # Apply cropping here before the transformation to tensor
+        img = self.crop_1(self.train_jpg[index])
+        img = Image.fromarray(img)  # Convert numpy array back to PIL image
 
         if self.transform is not None:
             img = self.transform(img)
@@ -89,8 +97,6 @@ class QRDataset(Dataset):
             label = 0
         elif 'AD' in self.train_jpg[index]:
             label = 1
-        elif 'MCI' in self.train_jpg[index]:
-            label = 2
         return img, torch.from_numpy(np.array(label))
 
     def __len__(self):
@@ -101,9 +107,9 @@ class DogeNet(nn.Module):
     def __init__(self):
         super(DogeNet, self).__init__()
         # model = EfficientNet.from_pretrained('efficientnet-b5', weights_path='./model/efficientnet-b5-b6417697.pth')
-        model = EfficientNet.from_pretrained('efficientnet-b8')
+        model = EfficientNet.from_pretrained('efficientnet-b5')
         in_channel = model._fc.in_features
-        model._fc = nn.Linear(in_channel, 3)
+        model._fc = nn.Linear(in_channel, 2)#修改类别
         self.efficientnet = model
 
     def forward(self, img):
@@ -130,7 +136,6 @@ def predict(test_loader, model, tta=10):
 
                 test_pred.append(output)
         test_pred = np.vstack(test_pred)
-
         if test_pred_tta is None:
             test_pred_tta = test_pred
         else:
@@ -138,44 +143,52 @@ def predict(test_loader, model, tta=10):
 
     return test_pred_tta
 
+def test():
+    print("Entering test")
+    args = config.args
 
-args = config.args
-test_jpg = [args.dataset_test_path + '/{0}.jpg'.format(x) for x in range(1, 2001)]
-test_jpg = np.array(test_jpg)
+    test_jpg = [args.dataset_test_path+ '/{0}.jpg'.format(x) for x in range(1, 10)]
+    test_jpg = np.array(test_jpg)
 
-test_pred = None
-model_path = 'best_acc_dogenet_b8' + args.v + '.pth'  # 模型名称
+    test_pred = None
+    model_path = 'best_acc_dogenet_b8' + args.v + '.pth'  # 模型名称
 
-test_loader = torch.utils.data.DataLoader(
-    QRDataset(test_jpg,
-              transforms.Compose([
-                  # transforms.RandomCrop(128),
-                  transforms.RandomRotation(degrees=args.RandomRotation, expand=True),  # 没旋转只有0.85,旋转有0.90
-                  transforms.Resize((args.Resize, args.Resize)),
-                  transforms.ColorJitter(brightness=args.ColorJitter, contrast=args.ColorJitter,
-                                         saturation=args.ColorJitter),  # 加入1
-                  # transforms.CenterCrop((450, 450)),
-                  transforms.RandomHorizontalFlip(),
-                  transforms.RandomVerticalFlip(),
-                  transforms.ToTensor(),
-                  transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-              ])
-              ), batch_size=args.batch_size, shuffle=False, num_workers=10, pin_memory=True
-)
+    test_loader = torch.utils.data.DataLoader(
+        QRDataset(test_jpg,
+                  transforms.Compose([
+                      # transforms.RandomCrop(128),
+                      transforms.RandomRotation(degrees=args.RandomRotation, expand=True),  # 没旋转只有0.85,旋转有0.90
+                      transforms.Resize((args.Resize, args.Resize)),
+                      transforms.ColorJitter(brightness=args.ColorJitter, contrast=args.ColorJitter,
+                                             saturation=args.ColorJitter),  # 加入1
+                      # transforms.CenterCrop((450, 450)),
+                      transforms.RandomHorizontalFlip(),
+                      transforms.RandomVerticalFlip(),
+                      transforms.ToTensor(),
+                      transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                  ])
+                  ), batch_size=args.batch_size, shuffle=False, num_workers=10, pin_memory=True
+    )
 
-# model = VisitNet().cuda()
-use_gpu = torch.cuda.is_available()
-print(use_gpu)
-model = DogeNet().cuda()
-model.load_state_dict(torch.load(args.save_dir + '/' + model_path))  # 模型文件路径，默认放在args.save_dir下
-# model = nn.DataParallel(model).cuda()
-if test_pred is None:
-    test_pred = predict(test_loader, model, 5)
-else:
-    test_pred += predict(test_loader, model, 5)
+    use_gpu = torch.cuda.is_available()
+    print(use_gpu)
+    model = DogeNet().cuda()
+    model.load_state_dict(torch.load(args.save_dir + '/' + model_path))  # 模型文件路径，默认放在args.save_dir下
+    print(args.save_dir)
+    print(model_path)
+    # model = nn.DataParallel(model).cuda()
+    if test_pred is None:
+        test_pred = predict(test_loader, model, 5)
+    else:
+        test_pred += predict(test_loader, model, 5)
 
-test_csv = pd.DataFrame()
-test_csv['uuid'] = list(range(1, 2001))
-test_csv['label'] = np.argmax(test_pred, 1)
-test_csv['label'] = test_csv['label'].map({1: 'AD', 0: 'CN', 2: 'MCI'})
-test_csv.to_csv(args.save_dir + '/best_acc_dogenet_b8' + args.v + '.csv', index=False)
+    test_csv = pd.DataFrame()
+    test_csv['uuid'] = list(range(1, 10))
+    test_csv['label'] = np.argmax(test_pred, 1)
+    test_csv['label'] = test_csv['label'].map({1: 'AD', 0: 'CN'})
+    test_csv.to_csv(args.save_dir + '/best_acc_dogenet_b8' + args.v + '.csv', index=False)
+    print("Exit test")
+
+if __name__ == '__main__':
+    freeze_support()
+    test()

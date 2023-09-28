@@ -328,7 +328,8 @@ def CrossEntropyLoss_label_smooth(outputs, targets,
 
 if __name__ == '__main__':
     args = config.args
-    args.epochs = 10  # 将 epochs 设置为 10
+    args.epochs = 5  # 将 epochs 设置为 10
+    args.k=5
     logging = write_log(args.save_dir)
     print('K={}\tepochs={}\tbatch_size={}\tresume={}\tlr={}'.format(args.k,
                                                                     args.epochs, args.batch_size, args.resume, args.lr))
@@ -423,8 +424,10 @@ if __name__ == '__main__':
             all_loss.append(loss)
             val_acc = validate(val_loader, model, criterion)
             args.resume = False
-            if val_acc.avg.item() >= best_acc:
-                best_acc = val_acc.avg.item()
+            # if val_acc.avg.item() >= best_acc:
+            if val_acc.avg >= best_acc:
+                # best_acc = val_acc.avg.item()
+                best_acc = val_acc.avg
                 torch.save(model.state_dict(), args.save_dir + '/best_acc_dogenet_b8' + args.v + '.pth')
             print('best_acc is :{}, lr:{}'.format(best_acc, optimizer.param_groups[0]["lr"]))
             logging.info('best_acc is :{}, lr:{}'.format(best_acc, optimizer.param_groups[0]["lr"]))
@@ -437,8 +440,14 @@ if __name__ == '__main__':
             torch.save(state, checkpoint_path + '/best_new_dogenet_b8' + args.v + '.pth.tar')
             scheduler.step()
             # with epoch_logger.as_default():  # 将acc写入TensorBoard
-            epoch_logger.add_scalar('epoch_loss', loss, step=(epoch + 1))
-            epoch_logger.add_scalar('val_acc', val_acc.avg.item(), step=(epoch + 1))
+            # epoch_logger.add_scalar('epoch_loss', loss, step=(epoch + 1))
+            # epoch_logger.add_scalar('val_acc', val_acc.avg.item(), step=(epoch + 1))
+            epoch_logger.add_scalar('epoch_loss', loss)
+            epoch_logger.add_scalar('val_acc', val_acc.avg)
+
         # with k_logger.as_default():  # 将acc写入TensorBoard
-        k_logger.add_scalar('K_loss', np.mean(all_loss), step=(flod_idx + 1))
-        k_logger.add_scalar('best_acc', best_acc, step=(flod_idx + 1))
+        # k_logger.add_scalar('K_loss', np.mean(all_loss), step=(flod_idx + 1))
+        # k_logger.add_scalar('best_acc', best_acc, step=(flod_idx + 1))
+        k_logger.add_scalar('K_loss', np.mean(all_loss))
+        k_logger.add_scalar('best_acc', best_acc,)
+
